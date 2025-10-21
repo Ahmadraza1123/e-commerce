@@ -3,10 +3,10 @@ from django.contrib.auth.models import Group, Permission
 from django.dispatch import receiver
 from .models import User
 
-# 1️⃣ Groups aur permissions create karna
+
 @receiver(post_migrate)
 def create_default_groups_with_permissions(sender, **kwargs):
-    if sender.name == 'Account':  # Replace with your app name
+    if sender.name == 'Account':
         groups_permissions = {
             'vendor': [
                 'add_category', 'change_category', 'view_category',
@@ -23,12 +23,14 @@ def create_default_groups_with_permissions(sender, **kwargs):
         for group_name, perms in groups_permissions.items():
             group, created = Group.objects.get_or_create(name=group_name)
             for perm_code in perms:
-                try:
-                    permission = Permission.objects.get(codename=perm_code)
+                # 👇 Safe lookup (no crash if duplicates exist)
+                permission = Permission.objects.filter(codename=perm_code).first()
+                if permission:
                     group.permissions.add(permission)
-                except Permission.DoesNotExist:
+                else:
                     print(f"⚠ Permission '{perm_code}' not found, skipping...")
-            print(f" Group '{group_name}' updated with permissions.")
+
+            print(f"✅ Group '{group_name}' updated with permissions.")
 
 # 2️⃣ User create hone par group me add karna
 @receiver(post_save, sender=User)
@@ -36,4 +38,4 @@ def add_user_to_group(sender, instance, created, **kwargs):
     if created and instance.role:
         group, _ = Group.objects.get_or_create(name=instance.role)
         instance.groups.add(group)
-        print(f" User '{instance.username}' added to group '{instance.role}'")
+        print(f"👤 User '{instance.username}' added to group '{instance.role}'")

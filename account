@@ -1,60 +1,21 @@
 {
     "message": "User registered successfully!",
     "user": {
-        "id": 7,
-        "username": "vendor1",
-        "email": "ahmadraza1939@gmail.com",
         "role": "vendor",
         "address": "Bahwalpur",
-        "pic": "http://127.0.0.1:8000/media/profile_pics/images_2.jpeg"
     }
-}
-
-
-    {
         "id": 5,
-        "username": "ahmad",
-        "email": "ahmadraza19397@gmail.com",
-        "role": "customer",
         "address": "Bahwalpur",
-        "pic": "http://127.0.0.1:8000/media/profile_pics/1download.jpeg"
-    },
-
-       {
-        "id": 6,
-        "username": "admin",
-        "email": "admin@gmail.com",
-        "role": "customer",
-        "address": null,
-        }
+}
 {
     "message": "User registered successfully!",
     "user": {
-        "id": 9,
-        "username": "asd",
-        "email": "asd@gmail.com",
         "role": "customer",
         "address": "Bahwalpur",
-        "user_profile": "http://127.0.0.1:8000/media/profile_pics/images_1.jpeg"
     }
-}{
     "message": "User registered successfully!",
     "user": {
-        "id": 10,
-        "username": "asdf",
-        "email": "asdf@gmail.com",
         "role": "vendor",
         "address": "Bahwalpur",
-        "user_profile": "http://127.0.0.1:8000/media/profile_pics/images_1_14KGr37.jpeg"
-    }
-}{
-    "message": "User registered successfully!",
-    "user": {
-        "id": 15,
-        "username": "customer3",
-        "email": "customer3@gmail.com",
-        "role": "customer",
-        "address": "Bahwalpur",
-        "user_profile": "http://127.0.0.1:8000/media/profile_pics/images_1_MfoAB6V.jpeg"
     }
 }

@@ -1,16 +1,21 @@
 from rest_framework import serializers
 from .models import Wishlist
+from product.serializers import ProductSerializer, ProductVariantSerializer
+
 
 class WishlistSerializer(serializers.ModelSerializer):
-    product_name = serializers.CharField(source='product.product_name', read_only=True)
-    product_price = serializers.DecimalField(source='product.product_price', read_only=True, max_digits=10, decimal_places=2)
+    product = ProductSerializer(read_only=True)
+    variant = ProductVariantSerializer(read_only=True)
 
     class Meta:
         model = Wishlist
-        fields = ['id', 'user', 'product', 'product_name', 'product_price', 'created_at']
-        read_only_fields = ['user', 'created_at']
-
-    def create(self, validated_data):
-        request = self.context.get('request')
-        validated_data['user'] = request.user
-        return super().create(validated_data)
+        fields = [
+            'id',
+            'user',
+            'product',
+            'variant',
+            'is_favorite',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['user', 'created_at', 'updated_at']

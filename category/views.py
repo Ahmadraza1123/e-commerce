@@ -2,11 +2,12 @@ from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from .models import Category
 from .serializers import CategorySerializer
-from .permissions import IsOwnerOrReadOnly
+from rest_framework.permissions import DjangoModelPermissions
+
 
 class CategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CategorySerializer
-    permission_classes = [IsAuthenticated, IsOwnerOrReadOnly]
+    permission_classes = [IsAuthenticated, DjangoModelPermissions]
 
     def get_queryset(self):
         user = self.request.user
