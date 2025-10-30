@@ -1,0 +1,25 @@
+ok
+tgit add .gitignore
+git commit -m "Add .gitignore to ignore cache and venv"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
