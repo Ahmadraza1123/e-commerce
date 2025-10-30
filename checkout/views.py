@@ -45,7 +45,7 @@ class CheckoutView(APIView):
             except Exception as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        # CASHCARD or other payment methods
+
         order = serializer.process_checkout(checkout)
         order_data = OrderSerializer(order, context={'request': request}).data
 
@@ -64,7 +64,7 @@ class StripeConfirmView(APIView):
         try:
             checkout = Checkout.objects.get(stripe_payment_intent_id=payment_intent_id)
 
-            # Stripe payment confirmed
+
             checkout.payment_status = "PAID"
             checkout.save()
 
