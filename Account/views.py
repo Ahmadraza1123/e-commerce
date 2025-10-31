@@ -1,17 +1,21 @@
-from rest_framework import viewsets, status
-from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
-from rest_framework_simplejwt.tokens import RefreshToken,TokenError
-from django.contrib.auth import authenticate
-from .models import User
-from .serializers import UserSerializer
-from rest_framework.permissions import IsAuthenticated
 from django.core.mail import send_mail
 from django.conf import settings
-from django.utils.crypto import get_random_string
+from django.contrib.auth.tokens import default_token_generator
+from rest_framework import viewsets, generics
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework_simplejwt.tokens import RefreshToken, TokenError
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.contrib.auth import authenticate
+from django.contrib.auth import get_user_model
+
+from .serializers import (UserSerializer,UserProfileSerializer,ResetPasswordRequestSerializer,PasswordResetConfirmSerializer)
+
+User = get_user_model()
 
 
-
+# ✅ REGISTER VIEWSET
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
@@ -21,8 +25,6 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-
-
             try:
                 send_mail(
                     subject='Welcome to E-Commerce Site!',
@@ -38,107 +40,115 @@ class UserViewSet(viewsets.ModelViewSet):
                 "message": "User registered successfully!",
                 "user": UserSerializer(user, context={'request': request}).data
             }, status=status.HTTP_201_CREATED)
-
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-class LoginViewSet(viewsets.ViewSet):
-    permission_classes = [AllowAny]
-
-    def create(self, request):
+# ✅ LOGIN VIEW
+class LoginView(APIView):
+    """
+    Custom JWT Login View
+    """
+    def post(self, request):
         username = request.data.get("username")
         password = request.data.get("password")
 
+        if not username or not password:
+            return Response({"error": "Username and password are required."}, status=status.HTTP_400_BAD_REQUEST)
+
         user = authenticate(username=username, password=password)
+        if user is None:
+            return Response({"error": "Invalid credentials."}, status=status.HTTP_401_UNAUTHORIZED)
 
-        if user is not None:
-            refresh = RefreshToken.for_user(user)
-            return Response({
-                "refresh": str(refresh),
-                "access": str(refresh.access_token),
-                "user": UserSerializer(user).data
-            }, status=status.HTTP_200_OK)
-        else:
-            return Response({"error": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
+        # Generate JWT tokens
+        refresh = RefreshToken.for_user(user)
+        return Response({
+            "refresh": str(refresh),
+            "access": str(refresh.access_token),
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+            },
+        }, status=status.HTTP_200_OK)
 
-
+# ✅ LOGOUT VIEW
 class LogoutViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
 
     def create(self, request):
         try:
             refresh_token = request.data.get("refresh")
-
             if not refresh_token:
-                return Response(
-                    {"error": "Refresh token is required."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                return Response({"error": "Refresh token required."}, status=status.HTTP_400_BAD_REQUEST)
 
             token = RefreshToken(refresh_token)
             token.blacklist()
-
-            return Response(
-                {"message": "Logout successful."},
-                status=status.HTTP_205_RESET_CONTENT
-            )
-
+            return Response({"message": "Logout successful."}, status=status.HTTP_205_RESET_CONTENT)
         except TokenError:
-            return Response(
-                {"error": "Invalid or expired token."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": "Invalid or expired token."}, status=status.HTTP_400_BAD_REQUEST)
 
-        except Exception as e:
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-class PasswordResetConfirmViewSet(viewsets.ViewSet):
+
+# ✅ PROFILE VIEW
+class UserProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = UserProfileSerializer(request.user)
+        return Response(serializer.data)
+
+
+# ✅ REQUEST PASSWORD RESET
+class RequestPasswordReset(generics.GenericAPIView):
     permission_classes = [AllowAny]
+    serializer_class = ResetPasswordRequestSerializer
 
-    def create(self, request):
+    def post(self, request, *args, **kwargs):
         email = request.data.get("email")
-        code = request.data.get("code")
-        new_password = request.data.get("new_password")
+        if not email:
+            return Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            user = User.objects.get(email=email, reset_code=code)
-        except User.DoesNotExist:
-            return Response({"error": "Invalid email or code."}, status=status.HTTP_400_BAD_REQUEST)
+        user = User.objects.filter(email=email).first()
+        if not user:
+            return Response({"error": "User not found with this email."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Generate reset token
+        token = default_token_generator.make_token(user)
+
+        # ✅ Save token in DB
+        user.reset_code = token
+        user.save()
+
+        reset_url = f"http://localhost:3000/reset-password/{token}"
+
+        send_mail(
+            subject="Password Reset Link",
+            message=f"Click the link to reset your password:\n{reset_url}",
+            from_email=settings.EMAIL_HOST_USER,
+            recipient_list=[email],
+            fail_silently=False,
+        )
+
+        return Response({"message": "Password reset link sent to your email."}, status=status.HTTP_200_OK)
+
+
+
+class PasswordResetConfirmView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = PasswordResetConfirmSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        token = serializer.validated_data["token"]
+        new_password = serializer.validated_data["new_password"]
+
+        user = User.objects.filter(reset_code=token).first()
+        if not user:
+            return Response({"error": "Invalid or expired token."}, status=status.HTTP_400_BAD_REQUEST)
 
         user.set_password(new_password)
         user.reset_code = None
         user.save()
 
-        return Response({"message": "Password reset successful."}, status=status.HTTP_200_OK)
-
-
-class PasswordResetRequestViewSet(viewsets.ViewSet):
-    permission_classes = [AllowAny]
-
-    def create(self, request):
-        email = request.data.get("email")
-
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            return Response({"error": "No user found with this email."}, status=status.HTTP_404_NOT_FOUND)
-
-        reset_code = get_random_string(6).upper()
-        user.reset_code = reset_code
-        user.save()
-
-        try:
-            send_mail(
-                subject="Password Reset Code",
-                message=f"Your password reset code is: {reset_code}",
-                from_email=settings.EMAIL_HOST_USER,
-                recipient_list=[email],
-                fail_silently=False,
-            )
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        return Response({"message": "Reset code sent to email."}, status=status.HTTP_200_OK)
-
+        return Response({"message": "Password reset successful!"}, status=status.HTTP_200_OK)

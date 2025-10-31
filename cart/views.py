@@ -1,10 +1,10 @@
-from rest_framework import generics, permissions
-from rest_framework.response import Response
 from django.db import transaction
-from .models import Cart, CartItem
-from .serializers import CartSerializer, SimpleCartItemSerializer
+from .serializers import SimpleCartItemSerializer
 from product.models import Product, ProductVariant
 from rest_framework.permissions import DjangoModelPermissions
+from rest_framework import generics, permissions, status
+from rest_framework.response import Response
+from .models import Cart, CartItem
 
 
 class AddToCartView(generics.CreateAPIView):
@@ -14,125 +14,107 @@ class AddToCartView(generics.CreateAPIView):
 
     def post(self, request, product_id):
         user = request.user
-        cart = Cart.objects.create(user=user)
+
+        # 🔹 Get existing open cart or create new one if none exists
+        cart = Cart.objects.filter(user=user, is_locked=False).first()
+        if not cart:
+            cart = Cart.objects.create(user=user)
 
         variant_id = request.data.get("variant_id")
         quantity = int(request.data.get("quantity", 1))
 
+        # 🔹 Check product
         product = Product.objects.filter(id=product_id).first()
         if not product:
             return Response({"error": "Product not found"}, status=404)
 
+        # 🔹 Check variant
         variant = ProductVariant.objects.filter(id=variant_id, product=product).first()
         if not variant:
             return Response({"error": "Invalid variant for this product"}, status=400)
 
+        # 🔹 Check stock availability
         if variant.quantity < quantity:
             return Response(
                 {"error": f"Only {variant.quantity} items available in stock."},
                 status=400
             )
 
-        with transaction.atomic():
-            cart_item = CartItem.objects.create(
-                cart=cart,
-                product=product,
-                variant=variant,
-                quantity=quantity
-            )
+        # 🔹 Check if item already exists in the cart
+        existing_item = CartItem.objects.filter(cart=cart, variant=variant).first()
+        if existing_item:
+
+            total_quantity = existing_item.quantity + quantity
+            if variant.quantity < quantity:
+                return Response(
+                    {"error": f"Only {variant.quantity} more available in stock."},
+                    status=400
+                )
             variant.quantity -= quantity
             variant.save()
+            existing_item.quantity = total_quantity
+            existing_item.save()
+            message = "Item quantity updated in cart."
+        else:
+            # Create new item
+            with transaction.atomic():
+                CartItem.objects.create(
+                    cart=cart,
+                    product=product,
+                    variant=variant,
+                    quantity=quantity
+                )
+                variant.quantity -= quantity
+                variant.save()
+            message = "Item added to cart."
 
-        response_data = SimpleCartItemSerializer(cart_item).data
-        response_data["cart_id"] = cart.id
+        # 🔹 Response
+        response_data = {
+            "message": message,
+            "cart_id": cart.id,
+            "items": SimpleCartItemSerializer(cart.items.all(), many=True).data
+        }
         return Response(response_data, status=201)
 
+class RemoveFromCartView(generics.DestroyAPIView):
+    permission_classes = [permissions.IsAuthenticated]
 
-class CartCRUDView(generics.RetrieveUpdateDestroyAPIView):
-    serializer_class = CartSerializer
-    permission_classes = [permissions.IsAuthenticated, DjangoModelPermissions]
+    def delete(self, request, variant_id, *args, **kwargs):
+        user = request.user
+        cart = Cart.objects.filter(user=user).first()
 
-    def get_queryset(self):
-        return Cart.objects.filter(user=self.request.user).order_by('-id')
+        if not cart:
+            return Response({"message": "Cart not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    def get_object(self):
-        pk = self.kwargs.get('pk')
-        if pk:
-            return self.get_queryset().filter(pk=pk).first()
-        return self.get_queryset().first()
+        try:
+            item = CartItem.objects.get(cart=cart, variant_id=variant_id)
+            item.delete()
+            return Response({"message": "Item removed from cart."}, status=status.HTTP_200_OK)
+        except CartItem.DoesNotExist:
+            return Response({"message": "Item not found in cart."}, status=status.HTTP_404_NOT_FOUND)
 
-    def get(self, request, *args, **kwargs):
+class UpdateCartItemQuantityView(generics.UpdateAPIView):
+    permission_classes = [permissions.IsAuthenticated]
 
-        if request.query_params.get('all') == 'true':
-            queryset = self.get_queryset()
-            serializer = self.get_serializer(queryset, many=True)
-            return Response(serializer.data)
+    def patch(self, request, variant_id, *args, **kwargs):
+        user = request.user
+        new_quantity = request.data.get("quantity")
 
-        instance = self.get_object()
-        if not instance:
-            return Response({"error": "Cart not found."}, status=404)
+        if not new_quantity or int(new_quantity) <= 0:
+            return Response({"message": "Invalid quantity."}, status=status.HTTP_400_BAD_REQUEST)
 
-        serializer = self.get_serializer(instance)
-        return Response(serializer.data)
+        cart = Cart.objects.filter(user=user).first()
+        if not cart:
+            return Response({"message": "Cart not found."}, status=status.HTTP_404_NOT_FOUND)
 
-
-    def patch(self, request, *args, **kwargs):
-        instance = self.get_object()
-        if not instance:
-            return Response({"error": "Cart not found."}, status=404)
-
-        items_data = request.data.get("items", [])
-        for item_data in items_data:
-            variant_id = item_data.get("variant_id")
-            new_quantity = int(item_data.get("quantity", 0))
-
-            if new_quantity <= 0:
-                return Response(
-                    {"error": "Quantity 0 or negative is not allowed."},
-                    status=400
-                )
-
-            cart_item = instance.items.filter(variant__id=variant_id).first()
-            if not cart_item:
-                return Response(
-                    {"error": f"Variant ID {variant_id} not found in this cart."},
-                    status=400
-                )
-
-            variant = cart_item.variant
-            old_quantity = cart_item.quantity
-            diff = new_quantity - old_quantity
-
-            if diff > 0:
-                if variant.quantity < diff:
-                    return Response(
-                        {"error": f"Only {variant.quantity} more available in stock."},
-                        status=400
-                    )
-                variant.quantity -= diff
-            elif diff < 0:
-                variant.quantity += abs(diff)
-
-            variant.save()
-            cart_item.quantity = new_quantity
-            cart_item.save()
-
-        instance.refresh_from_db()
-        serializer = self.get_serializer(instance)
-        return Response(serializer.data)
-
-    def delete(self, request, *args, **kwargs):
-        instance = self.get_object()
-        if not instance:
-            return Response({"error": "Cart not found."}, status=404)
-
-        for item in instance.items.all():
-            variant = item.variant
-            variant.quantity += item.quantity
-            variant.save()
-
-        instance.delete()
-        return Response(
-            {"message": "Cart deleted and stock restored successfully."},
-            status=200
-        )
+        try:
+            item = CartItem.objects.get(cart=cart, variant_id=variant_id)
+            item.quantity = int(new_quantity)
+            item.save()
+            return Response({
+                "message": "Cart item quantity updated.",
+                "variant_id": variant_id,
+                "new_quantity": item.quantity
+            }, status=status.HTTP_200_OK)
+        except CartItem.DoesNotExist:
+            return Response({"message": "Item not found in cart."}, status=status.HTTP_404_NOT_FOUND)

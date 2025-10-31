@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 from category.models import Category
+from django.core.validators import MinValueValidator, MaxValueValidator
 
 
 class Product(models.Model):
@@ -28,7 +29,11 @@ class ProductVariant(models.Model):
 class ProductReview(models.Model):
     product = models.ForeignKey('Product', on_delete=models.CASCADE, related_name='reviews')
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    rating = models.PositiveSmallIntegerField()
+    rating = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+        null=True,
+        blank=True
+    )
     comment = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

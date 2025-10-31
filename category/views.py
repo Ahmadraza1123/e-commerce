@@ -1,8 +1,8 @@
 from rest_framework import viewsets
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, DjangoModelPermissions
+from rest_framework.exceptions import PermissionDenied
 from .models import Category
 from .serializers import CategorySerializer
-from rest_framework.permissions import DjangoModelPermissions
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
@@ -17,3 +17,14 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+    def perform_update(self, serializer):
+        category = self.get_object()
+        if self.request.user.role == "vendor" and category.created_by != self.request.user:
+            raise PermissionDenied("You cannot edit another vendor's category.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if self.request.user.role == "vendor" and instance.created_by != self.request.user:
+            raise PermissionDenied("You cannot delete another vendor's category.")
+        instance.delete()

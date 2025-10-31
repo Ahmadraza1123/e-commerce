@@ -3,9 +3,9 @@ from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
+from cart.models import Cart  # ✅ make sure it's imported
 from .models import Checkout
 from .serializers import CheckoutSerializer, OrderSerializer
-
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
@@ -14,6 +14,18 @@ class CheckoutView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        cart_id = request.data.get("cart")
+
+        # ✅ Ownership validation before serializer
+        try:
+            cart = Cart.objects.get(id=cart_id, user=request.user)
+        except Cart.DoesNotExist:
+            return Response(
+                {"error": "yeh cart ap ka ni hy"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # ✅ Proceed normally after validation
         serializer = CheckoutSerializer(data=request.data, context={'request': request})
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -45,7 +57,7 @@ class CheckoutView(APIView):
             except Exception as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-
+        # ✅ Process order normally (COD etc.)
         order = serializer.process_checkout(checkout)
         order_data = OrderSerializer(order, context={'request': request}).data
 
@@ -53,6 +65,8 @@ class CheckoutView(APIView):
             "message": "Order created successfully",
             "order": order_data
         }, status=status.HTTP_201_CREATED)
+
+
 class StripeConfirmView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -62,15 +76,17 @@ class StripeConfirmView(APIView):
             return Response({"error": "Missing payment_intent_id"}, status=400)
 
         try:
-            checkout = Checkout.objects.get(stripe_payment_intent_id=payment_intent_id)
-
+            # ✅ Also verify ownership (if Checkout model has user field)
+            checkout = Checkout.objects.get(
+                stripe_payment_intent_id=payment_intent_id,
+                user=request.user
+            )
 
             checkout.payment_status = "PAID"
             checkout.save()
 
             serializer = CheckoutSerializer(context={'request': request})
             order = serializer.process_checkout(checkout)
-
             order_data = OrderSerializer(order, context={'request': request}).data
 
             return Response({
@@ -79,6 +95,6 @@ class StripeConfirmView(APIView):
             }, status=200)
 
         except Checkout.DoesNotExist:
-            return Response({"error": "Invalid payment_intent_id"}, status=404)
+            return Response({"error": "yeh cart ap ka ni hy"}, status=status.HTTP_403_FORBIDDEN)
         except Exception as e:
             return Response({"error": str(e)}, status=400)

@@ -14,5 +14,8 @@ class User(AbstractUser):
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='customer')
     user_profile = models.ImageField(upload_to='profile_pics/', blank=False, null=False)
     address = models.TextField(blank=True, null=True)
+    reset_code = models.CharField(max_length=255, blank=True, null=True)
+
+
 
 
