@@ -1,4 +1,4 @@
-ok
+E_Commerce/settings.py
 tgit add .gitignore
 git commit -m "Add .gitignore to ignore cache and venv"
 
